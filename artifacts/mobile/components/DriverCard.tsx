@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Linking, Alert } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { Driver } from '@/context/RideContext';
+import { RatingStars } from './RatingStars';
 import * as Haptics from 'expo-haptics';
 
 interface DriverCardProps {
@@ -11,9 +12,10 @@ interface DriverCardProps {
   status?: string;
   onCancel?: () => void;
   showCancel?: boolean;
+  onMessage?: () => void;
 }
 
-export default function DriverCard({ driver, eta, status, onCancel, showCancel }: DriverCardProps) {
+export default function DriverCard({ driver, eta, status, onCancel, showCancel, onMessage }: DriverCardProps) {
   const colors = useColors();
 
   const callDriver = async () => {
@@ -27,7 +29,7 @@ export default function DriverCard({ driver, eta, status, onCancel, showCancel }
     }
   };
 
-  const styles = StyleSheet.create({
+  const styles = useMemo(() => StyleSheet.create({
     card: {
       backgroundColor: colors.card,
       borderTopLeftRadius: 24,
@@ -133,6 +135,23 @@ export default function DriverCard({ driver, eta, status, onCancel, showCancel }
       fontFamily: 'Inter_600SemiBold',
       color: '#FFFFFF',
     },
+    msgBtn: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.secondary,
+      borderRadius: colors.radius,
+      paddingVertical: 13,
+      gap: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    msgBtnText: {
+      fontSize: 15,
+      fontFamily: 'Inter_600SemiBold',
+      color: colors.foreground,
+    },
     cancelBtn: {
       flex: 1,
       flexDirection: 'row',
@@ -162,7 +181,7 @@ export default function DriverCard({ driver, eta, status, onCancel, showCancel }
       color: colors.foreground,
       letterSpacing: 2,
     },
-  });
+  }), [colors]);
 
   const initials = driver.name
     .split(' ')
@@ -186,10 +205,13 @@ export default function DriverCard({ driver, eta, status, onCancel, showCancel }
         </View>
         <View style={styles.driverInfo}>
           <Text style={styles.driverName}>{driver.name}</Text>
-          <View style={styles.ratingRow}>
-            <Ionicons name="star" size={13} color="#FBBF24" />
-            <Text style={styles.ratingText}>{driver.rating}</Text>
-          </View>
+          <RatingStars
+            value={driver.rating}
+            size={13}
+            showValue
+            valueStyle={styles.ratingText}
+            style={styles.ratingRow}
+          />
           <Text style={styles.carText}>
             {driver.vehicleColor} {driver.vehicle}
           </Text>
@@ -203,6 +225,12 @@ export default function DriverCard({ driver, eta, status, onCancel, showCancel }
           <Ionicons name="call" size={18} color="#FFFFFF" />
           <Text style={styles.callBtnText}>Call</Text>
         </TouchableOpacity>
+        {onMessage && (
+          <TouchableOpacity style={styles.msgBtn} onPress={onMessage} activeOpacity={0.85}>
+            <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.primary} />
+            <Text style={styles.msgBtnText}>Chat</Text>
+          </TouchableOpacity>
+        )}
         {showCancel && onCancel && (
           <TouchableOpacity style={styles.cancelBtn} onPress={onCancel} activeOpacity={0.85}>
             <Ionicons name="close-circle-outline" size={18} color={colors.destructive} />

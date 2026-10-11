@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -6,8 +6,10 @@ import {
   StyleSheet,
   ScrollView,
   Platform,
+  AppState,
   Dimensions,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
@@ -18,58 +20,198 @@ import * as Haptics from 'expo-haptics';
 import * as ExpoLocation from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { MapView, Marker } from '@/components/RideMap';
+import { MapView, Marker, PROVIDER_GOOGLE } from '@/components/RideMap';
+import type { IoniconName } from '@/lib/ionicon-name';
+import { mapsReverseGeocode } from '@workspace/api-client-react';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-const QUICK_PICKS = [
+const QUICK_PICKS: { id: string; icon: IoniconName; label: string; color: string }[] = [
   { id: 'loc1', icon: 'home', label: 'Home', color: '#4F46E5' },
   { id: 'loc2', icon: 'briefcase', label: 'Office', color: '#0891B2' },
   { id: 'loc3', icon: 'airplane', label: 'Airport', color: '#059669' },
   { id: 'loc4', icon: 'storefront', label: 'Mall', color: '#D97706' },
 ];
 
-const SF_REGION = {
-  latitude: 37.7749,
-  longitude: -122.4194,
-  latitudeDelta: 0.04,
-  longitudeDelta: 0.04,
-};
+function describeWebLocationError(error: GeolocationPositionError) {
+  if (error.code === error.PERMISSION_DENIED) {
+    return 'Browser location permission is blocked. Allow location for this site, then retry.';
+  }
+  if (error.code === error.POSITION_UNAVAILABLE) {
+    return 'Your browser cannot get a position from the device. Turn on system Location Services and Wi-Fi, or open RideGo in the device browser instead of an embedded preview, then retry.';
+  }
+  if (error.code === error.TIMEOUT) {
+    return 'Your device did not return a location in time. Keep location services on and retry.';
+  }
+  return error.message || 'Could not get your location. Check device location services and retry.';
+}
 
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { activeRide, currentPickup, setCurrentPickup, setCurrentDestination } = useRide();
-  const [userRegion, setUserRegion] = useState(SF_REGION);
+  const {
+    activeRide,
+    currentPickup,
+    setCurrentPickup,
+    setCurrentDestination,
+    recentLocations,
+    recordRecentLocation,
+    savedPlaces,
+    notifications,
+    unreadCount,
+    markNotificationRead,
+  } = useRide();
+  const [userRegion, setUserRegion] = useState(() => currentPickup
+    ? { latitude: currentPickup.lat, longitude: currentPickup.lng, latitudeDelta: 0.04, longitudeDelta: 0.04 }
+    : null);
   const [locationLoading, setLocationLoading] = useState(false);
+  const [showNotifModal, setShowNotifModal] = useState(false);
+  const [permissionDenied, setPermissionDenied] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const locationLookupRef = useRef(0);
+  const locationWatchRef = useRef<number | ExpoLocation.LocationSubscription | null>(null);
+
+  const resetLocationWatch = () => {
+    const watch = locationWatchRef.current;
+    if (typeof watch === 'number' && typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watch);
+    } else if (watch && typeof watch !== 'number') {
+      watch.remove();
+    }
+    locationWatchRef.current = null;
+  };
+
+  const updatePickupFromGps = (latitude: number, longitude: number) => {
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return;
+    const lookupId = ++locationLookupRef.current;
+    const location: Location = {
+      id: 'current',
+      name: 'Current Location',
+      address: 'Your current position',
+      lat: latitude,
+      lng: longitude,
+    };
+    setCurrentPickup(location);
+    setPermissionDenied(false);
+    setLocationError(null);
+    mapsReverseGeocode({ latitude, longitude })
+      .then((result) => {
+        if (locationLookupRef.current === lookupId && result.address) {
+          setCurrentPickup({ ...location, address: result.address });
+        }
+      })
+      .catch(() => {});
+  };
 
   const webTopPad = Platform.OS === 'web' ? 67 : 0;
 
-  useEffect(() => {
-    if (Platform.OS !== 'web') {
-      (async () => {
-        setLocationLoading(true);
+  const acquireLocation = useCallback(async () => {
+    // A failed watch may not recover after permissions or system settings change.
+    // Restart it for every explicit retry and foreground resume.
+    resetLocationWatch();
+    setLocationLoading(true);
+    setPermissionDenied(false);
+    setLocationError(null);
+    if (Platform.OS === 'web') {
+      if (typeof navigator !== 'undefined' && navigator.geolocation) {
+        const applyPosition = (pos: GeolocationPosition) => {
+          const { latitude, longitude } = pos.coords;
+          setUserRegion({ latitude, longitude, latitudeDelta: 0.04, longitudeDelta: 0.04 });
+          updatePickupFromGps(latitude, longitude);
+          setLocationLoading(false);
+          setPermissionDenied(false);
+        };
+        if (locationWatchRef.current === null) {
+          locationWatchRef.current = navigator.geolocation.watchPosition(
+            applyPosition,
+            (error) => {
+              if (error.code === error.PERMISSION_DENIED) {
+                setPermissionDenied(true);
+              }
+              setLocationError(describeWebLocationError(error));
+            },
+            { enableHighAccuracy: false, maximumAge: 300000, timeout: 30000 }
+          );
+        }
+        const useFallbackAccuracy = () => navigator.geolocation.getCurrentPosition(
+          applyPosition,
+          (error) => {
+            setLocationLoading(false);
+            const denied = error.code === error.PERMISSION_DENIED;
+            setPermissionDenied(denied);
+            setLocationError(describeWebLocationError(error));
+          },
+          { enableHighAccuracy: false, maximumAge: Infinity, timeout: 30000 }
+        );
+        navigator.geolocation.getCurrentPosition(
+          applyPosition,
+          useFallbackAccuracy,
+          { enableHighAccuracy: true, maximumAge: Infinity, timeout: 20000 }
+        );
+      } else {
+        setLocationLoading(false);
+        setPermissionDenied(true);
+        setLocationError('This browser does not provide location services.');
+      }
+    } else {
+      try {
         const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
-          const loc = await ExpoLocation.getCurrentPositionAsync({});
+        if (status !== 'granted') {
+          setPermissionDenied(true);
+          setLocationError('Allow location access in your device settings, then retry.');
+          return;
+        }
+        if (locationWatchRef.current === null) {
+          locationWatchRef.current = await ExpoLocation.watchPositionAsync(
+            { accuracy: ExpoLocation.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 10 },
+            (loc) => {
+              setUserRegion({ latitude: loc.coords.latitude, longitude: loc.coords.longitude, latitudeDelta: 0.04, longitudeDelta: 0.04 });
+              updatePickupFromGps(loc.coords.latitude, loc.coords.longitude);
+            }
+          );
+        }
+        const lastKnown = await ExpoLocation.getLastKnownPositionAsync();
+        if (lastKnown) {
           setUserRegion({
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
+            latitude: lastKnown.coords.latitude,
+            longitude: lastKnown.coords.longitude,
             latitudeDelta: 0.04,
             longitudeDelta: 0.04,
           });
-          setCurrentPickup({
-            id: 'current',
-            name: 'Current Location',
-            address: 'Your current position',
-            lat: loc.coords.latitude,
-            lng: loc.coords.longitude,
-          });
+          updatePickupFromGps(lastKnown.coords.latitude, lastKnown.coords.longitude);
         }
+        const loc = await ExpoLocation.getCurrentPositionAsync({
+          accuracy: ExpoLocation.Accuracy.Balanced,
+          mayShowUserSettingsDialog: true,
+        });
+        setUserRegion({ latitude: loc.coords.latitude, longitude: loc.coords.longitude, latitudeDelta: 0.04, longitudeDelta: 0.04 });
+        updatePickupFromGps(loc.coords.latitude, loc.coords.longitude);
+        setPermissionDenied(false);
+      } catch (error) {
+        setPermissionDenied(true);
+        setLocationError(error instanceof Error ? error.message : 'Could not get a GPS fix. Check that device location services are on.');
+      } finally {
         setLocationLoading(false);
-      })();
+      }
     }
+  }, [setCurrentPickup]);
+
+  useEffect(() => {
+    void acquireLocation();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void acquireLocation();
+    });
+    return () => subscription.remove();
+  }, [acquireLocation]);
+
+  useEffect(() => () => {
+    resetLocationWatch();
   }, []);
+
+  const handleRecenter = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await acquireLocation();
+  };
 
   const handleWhereTo = async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -78,27 +220,16 @@ export default function HomeScreen() {
 
   const handleQuickPick = async (pickId: string) => {
     await Haptics.selectionAsync();
-    const loc = KNOWN_LOCATIONS.find(l => l.id === pickId);
+    const loc = savedPlaces.find(l => l.id === pickId) || KNOWN_LOCATIONS.find(l => l.id === pickId);
     if (loc) {
+      recordRecentLocation(loc);
       setCurrentDestination(loc);
       router.push('/booking');
     }
   };
 
-  const styles = StyleSheet.create({
+  const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    map: { flex: 1 },
-    mapPlaceholder: {
-      flex: 1,
-      backgroundColor: '#1A2330',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    mapPlaceholderText: {
-      color: '#4A5568',
-      fontFamily: 'Inter_400Regular',
-      fontSize: 14,
-    },
     headerOverlay: {
       position: 'absolute',
       top: insets.top + webTopPad,
@@ -133,6 +264,41 @@ export default function HomeScreen() {
       backgroundColor: 'rgba(0,0,0,0.4)',
       alignItems: 'center',
       justifyContent: 'center',
+      position: 'relative',
+    },
+    notifBadge: {
+      position: 'absolute',
+      top: -2,
+      right: -2,
+      backgroundColor: colors.primary,
+      borderRadius: 9,
+      minWidth: 18,
+      height: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 4,
+    },
+    notifBadgeText: {
+      color: '#FFFFFF',
+      fontSize: 10,
+      fontFamily: 'Inter_700Bold',
+    },
+    recenterBtn: {
+      position: 'absolute',
+      right: 16,
+      bottom: 20,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: colors.card,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.25,
+      shadowRadius: 6,
+      elevation: 6,
+      zIndex: 10,
     },
     bottomCard: {
       position: 'absolute',
@@ -256,23 +422,86 @@ export default function HomeScreen() {
       fontFamily: 'Inter_600SemiBold',
       color: '#FFFFFF',
     },
-  });
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      justifyContent: 'flex-end',
+    },
+    modalContent: {
+      backgroundColor: colors.card,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      padding: 24,
+      maxHeight: '80%',
+      paddingBottom: insets.bottom + 24,
+    },
+    modalHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 16,
+      paddingBottom: 14,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    modalTitle: {
+      fontSize: 20,
+      fontFamily: 'Inter_700Bold',
+      color: colors.foreground,
+    },
+    notifItem: {
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      flexDirection: 'row',
+      gap: 12,
+      alignItems: 'flex-start',
+    },
+    notifDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: colors.primary,
+      marginTop: 6,
+    },
+    notifTitle: {
+      fontSize: 15,
+      fontFamily: 'Inter_600SemiBold',
+      color: colors.foreground,
+      marginBottom: 2,
+    },
+    notifBody: {
+      fontSize: 13,
+      fontFamily: 'Inter_400Regular',
+      color: colors.mutedForeground,
+      lineHeight: 18,
+    },
+    notifTime: {
+      fontSize: 11,
+      color: colors.mutedForeground,
+      marginTop: 4,
+    },
+  }), [colors, insets]);
 
   const mapHeight = SCREEN_HEIGHT * 0.55;
-
-  const recentLocations = KNOWN_LOCATIONS.slice(0, 3);
-
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
   return (
     <View style={styles.container}>
-      {/* Map */}
-      <View style={{ height: mapHeight }}>
-        {MapView ? (
+      {/* Map Container */}
+      <View style={{ height: mapHeight, position: 'relative' }}>
+        {userRegion ? (
           <MapView
+            provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
             style={StyleSheet.absoluteFill}
             region={userRegion}
+            onRegionChangeComplete={(region) => setUserRegion((previous) => ({
+              latitude: region.latitude,
+              longitude: region.longitude,
+              latitudeDelta: region.latitudeDelta ?? previous?.latitudeDelta ?? 0.04,
+              longitudeDelta: region.longitudeDelta ?? previous?.longitudeDelta ?? 0.04,
+            }))}
             showsUserLocation={Platform.OS !== 'web'}
             showsMyLocationButton={false}
             customMapStyle={[
@@ -285,19 +514,40 @@ export default function HomeScreen() {
               { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
             ]}
           >
-            {currentPickup && currentPickup.id !== 'current' && Marker && (
+            {currentPickup && (currentPickup.id !== 'current' || Platform.OS === 'web') && Marker && (
               <Marker
                 coordinate={{ latitude: currentPickup.lat, longitude: currentPickup.lng }}
+                title={currentPickup.id === 'current' ? 'You are here' : currentPickup.name}
                 pinColor={colors.primary}
               />
             )}
           </MapView>
         ) : (
-          <View style={styles.mapPlaceholder}>
-            <Ionicons name="map" size={48} color="#4A5568" />
-            <Text style={styles.mapPlaceholderText}>Map Loading...</Text>
+          <View style={{ ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, backgroundColor: colors.background }}>
+            <Text style={{ color: colors.mutedForeground, fontSize: 14, textAlign: 'center' }}>
+              {locationLoading ? 'Finding your location…' : locationError || 'Enable location access to show the map here.'}
+            </Text>
+            {!locationLoading && (
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Retry getting my location"
+                onPress={acquireLocation}
+                style={{ marginTop: 14, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 10, backgroundColor: colors.primary }}
+              >
+                <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>Retry location</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
+
+        {/* Floating Re-center button */}
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Recenter map on my location" style={styles.recenterBtn} onPress={handleRecenter} activeOpacity={0.85}>
+          {locationLoading ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <Ionicons name="locate" size={22} color={colors.primary} />
+          )}
+        </TouchableOpacity>
 
         {/* Header overlay on map */}
         <LinearGradient
@@ -310,10 +560,61 @@ export default function HomeScreen() {
             <Text style={styles.greeting}>{greeting}</Text>
             <Text style={styles.subGreeting}>Where are you going today?</Text>
           </View>
-          <TouchableOpacity style={styles.notifBtn}>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
+            style={styles.notifBtn}
+            onPress={() => {
+              setShowNotifModal(true);
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            }}
+          >
             <Ionicons name="notifications-outline" size={20} color="#FFFFFF" />
+            {unreadCount > 0 && (
+              <View style={styles.notifBadge}>
+                <Text style={styles.notifBadgeText}>{unreadCount}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
+
+        {/* Location Permission Prompt Banner */}
+        {permissionDenied && (
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Enable location access"
+            style={{
+              position: 'absolute',
+              top: insets.top + (Platform.OS === 'web' ? 70 : 8) + 60,
+              left: 16,
+              right: 16,
+              backgroundColor: 'rgba(234, 88, 12, 0.95)',
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+              borderRadius: 14,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 10,
+              zIndex: 25,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.3,
+              shadowRadius: 8,
+            }}
+            onPress={acquireLocation}
+          >
+            <Ionicons name="location-outline" size={20} color="#FFFFFF" />
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '700' }}>
+                Location Access Needed
+              </Text>
+              <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 11 }}>
+                {locationError || 'Tap to retry GPS and detect your pickup location'}
+              </Text>
+            </View>
+            <Ionicons name="refresh" size={16} color="#FFFFFF" />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Bottom panel */}
@@ -323,6 +624,8 @@ export default function HomeScreen() {
         {/* Active ride banner */}
         {activeRide && (
           <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Track your active ride"
             style={styles.activeBanner}
             onPress={() => router.push('/tracking')}
           >
@@ -333,7 +636,7 @@ export default function HomeScreen() {
         )}
 
         {/* Where to button */}
-        <TouchableOpacity style={styles.whereToBtn} onPress={handleWhereTo}>
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Search for a destination" style={styles.whereToBtn} onPress={handleWhereTo}>
           <Ionicons name="search" size={20} color={colors.mutedForeground} />
           <Text style={styles.whereToText}>Where to?</Text>
           {locationLoading && <ActivityIndicator size="small" color={colors.primary} />}
@@ -343,9 +646,9 @@ export default function HomeScreen() {
         <Text style={styles.sectionLabel}>Quick picks</Text>
         <View style={styles.quickRow}>
           {QUICK_PICKS.map(pick => (
-            <TouchableOpacity key={pick.id} style={styles.quickBtn} onPress={() => handleQuickPick(pick.id)}>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Choose ${pick.label} as destination`} key={pick.id} style={styles.quickBtn} onPress={() => handleQuickPick(pick.id)}>
               <View style={[styles.quickIcon, { backgroundColor: pick.color + '22' }]}>
-                <Ionicons name={pick.icon as any} size={22} color={pick.color} />
+                <Ionicons name={pick.icon} size={22} color={pick.color} />
               </View>
               <Text style={styles.quickLabel}>{pick.label}</Text>
             </TouchableOpacity>
@@ -353,13 +656,17 @@ export default function HomeScreen() {
         </View>
 
         {/* Recent */}
-        <Text style={styles.recentLabel}>Recent</Text>
-        {recentLocations.map((loc, idx) => (
+        {recentLocations.length > 0 && <>
+          <Text style={styles.recentLabel}>Recent</Text>
+          {recentLocations.map((loc, idx) => (
           <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={`Recent destination: ${loc.name}, ${loc.address}`}
             key={loc.id}
             style={[styles.recentItem, idx === recentLocations.length - 1 && { borderBottomWidth: 0 }]}
             onPress={async () => {
               await Haptics.selectionAsync();
+              recordRecentLocation(loc);
               setCurrentDestination(loc);
               router.push('/booking');
             }}
@@ -373,8 +680,44 @@ export default function HomeScreen() {
             </View>
             <Ionicons name="chevron-forward" size={16} color={colors.border} />
           </TouchableOpacity>
-        ))}
+          ))}
+        </>}
       </Animated.View>
+
+      {/* Notifications Modal */}
+      <Modal visible={showNotifModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Notifications</Text>
+              <TouchableOpacity onPress={() => setShowNotifModal(false)}>
+                <Ionicons name="close" size={24} color={colors.foreground} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {notifications.length === 0 ? (
+                <Text style={{ color: colors.mutedForeground, textAlign: 'center', paddingVertical: 28 }}>
+                  You’re all caught up. New ride and account updates will appear here.
+                </Text>
+              ) : notifications.map(n => (
+                <TouchableOpacity
+                  key={n.id}
+                  style={styles.notifItem}
+                  onPress={() => markNotificationRead(n.id)}
+                >
+                  <View style={[styles.notifDot, { backgroundColor: n.read ? 'transparent' : colors.primary }]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.notifTitle}>{n.title}</Text>
+                    <Text style={styles.notifBody}>{n.message}</Text>
+                    <Text style={styles.notifTime}>{n.timestamp}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

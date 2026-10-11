@@ -1,22 +1,43 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: API specification for Ride-Booker Production Platform
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Registration, login, OTP, and session management
+  - name: users
+    description: Authenticated user profile and saved locations
+  - name: rides
+    description: Ride requests, scheduled rides, fare estimation, cancellation, and history
+  - name: drivers
+    description: Driver onboarding, status, location streaming, ride offers, and earnings
+  - name: shared-rides
+    description: Multi-passenger carpooling and shared ride lifecycle
+  - name: payments
+    description: Orders, checkout verification, webhooks, and refunds
+  - name: maps
+    description: Geocoding, reverse geocoding, autocomplete, and routing
+  - name: safety
+    description: SOS emergency incidents and emergency contacts
+  - name: support
+    description: Support tickets and lost-and-found reporting
+  - name: admin
+    description: Operations, driver approvals, ride monitoring, and pricing configuration
+  - name: public-tracking
+    description: Unauthenticated live trip sharing tracking page
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +45,2306 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # ---------------------------------------------------------------------------
+  # AUTH
+  # ---------------------------------------------------------------------------
+  /auth/register:
+    post:
+      operationId: authRegister
+      tags: [auth]
+      summary: Create a passenger or driver account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "409":
+          description: Phone or email already in use
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/login:
+    post:
+      operationId: authLogin
+      tags: [auth]
+      summary: Log in with email/password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/otp/request:
+    post:
+      operationId: authOtpRequest
+      tags: [auth]
+      summary: Request an OTP code for a phone number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpRequest"
+      responses:
+        "200":
+          description: OTP sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpRequestResponse"
+        "429":
+          description: Too many OTP requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/otp/verify:
+    post:
+      operationId: authOtpVerify
+      tags: [auth]
+      summary: Verify an OTP code and log in / complete signup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpVerifyRequest"
+      responses:
+        "200":
+          description: OTP verified, session issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "400":
+          description: Invalid or expired OTP
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/refresh:
+    post:
+      operationId: authRefresh
+      tags: [auth]
+      summary: Exchange a refresh token for a new access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: New session issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "401":
+          description: Refresh token invalid, expired, or revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: authLogout
+      tags: [auth]
+      summary: Revoke the current refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "204":
+          description: Logged out
+
+  /auth/forgot-password:
+    post:
+      operationId: authForgotPassword
+      tags: [auth]
+      summary: Request a password reset OTP for an email/phone account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgotPasswordRequest"
+      responses:
+        "200":
+          description: Reset OTP sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpRequestResponse"
+
+  # ---------------------------------------------------------------------------
+  # USERS
+  # ---------------------------------------------------------------------------
+  /users/me:
+    get:
+      operationId: getCurrentUser
+      tags: [users]
+      summary: Get the authenticated user's profile
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateCurrentUser
+      tags: [users]
+      summary: Update the authenticated user's profile
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: Updated user profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+
+  /users/devices:
+    post:
+      operationId: registerPushDevice
+      tags: [users]
+      summary: Register device push token (Expo Push / FCM)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterDeviceRequest"
+      responses:
+        "200":
+          description: Device registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterDeviceResult"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users/saved-locations:
+    get:
+      operationId: getSavedLocations
+      tags: [users]
+      summary: List user's saved favorite locations
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Saved locations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SavedLocationItem"
+    post:
+      operationId: createSavedLocation
+      tags: [users]
+      summary: Save a new favorite location
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSavedLocationRequest"
+      responses:
+        "201":
+          description: Location saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavedLocationItem"
+
+  /users/saved-locations/{id}:
+    delete:
+      operationId: deleteSavedLocation
+      tags: [users]
+      summary: Remove a saved favorite location
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Location deleted
+
+  # ---------------------------------------------------------------------------
+  # RIDES
+  # ---------------------------------------------------------------------------
+  /rides/match:
+    post:
+      operationId: matchRide
+      tags: [rides]
+      summary: Match passenger with the closest available driver within 3 km using PostGIS
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MatchRideRequest"
+      responses:
+        "200":
+          description: Match search result (found or not found within 3km)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RideMatchResult"
+        "400":
+          description: Invalid coordinates or request payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /rides:
+    post:
+      operationId: createRide
+      tags: [rides]
+      summary: Request an instant or scheduled ride with server fare calculation
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRideRequest"
+      responses:
+        "201":
+          description: Ride created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RideProfile"
+        "400":
+          description: Invalid request parameters or promo code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /rides/quote:
+    post:
+      operationId: getRideFareQuote
+      tags: [rides]
+      summary: Get upfront server-calculated fare quote and route ETA for all ride types
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FareQuoteRequest"
+      responses:
+        "200":
+          description: Available ride options and estimated fares
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FareQuoteResponse"
+
+  /rides/available-drivers:
+    post:
+      operationId: getAvailableDrivers
+      tags: [rides]
+      summary: Get available nearby drivers and ride options for a route
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AvailableDriversRequest"
+      responses:
+        "200":
+          description: List of available drivers and pricing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AvailableDriversResponse"
+        "400":
+          description: Invalid request coordinates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /rides/history:
+    get:
+      operationId: getRideHistory
+      tags: [rides]
+      summary: Completed and cancelled rides
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: number, default: 20, maximum: 100 }
+        - name: offset
+          in: query
+          schema: { type: number, default: 0 }
+      responses:
+        "200":
+          description: Ride history page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RideListResponse"
+
+  /rides/upcoming:
+    get:
+      operationId: getUpcomingRides
+      tags: [rides]
+      summary: Active and scheduled rides for the authenticated user
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Upcoming/active rides
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RideListResponse"
+
+  /rides/{id}:
+    get:
+      operationId: getRide
+      tags: [rides]
+      summary: Get single ride details
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Ride details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RideProfile"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Ride not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /rides/{id}/cancel:
+    post:
+      operationId: cancelRide
+      tags: [rides]
+      summary: Cancel a ride and compute any applicable cancellation fee
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelRideRequest"
+      responses:
+        "200":
+          description: Cancelled ride with fee breakdown
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RideProfile"
+        "409":
+          description: Ride cannot be cancelled in current status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /rides/{id}/rate:
+    post:
+      operationId: rateRide
+      tags: [rides]
+      summary: Submit star rating, driver tip, and compliment badges
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RateRideRequest"
+      responses:
+        "200":
+          description: Rating submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RatingResponse"
+
+  /rides/{id}/messages:
+    get:
+      operationId: getRideMessages
+      tags: [rides]
+      summary: Get in-app chat message thread for a ride
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Message thread
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RideMessageItem"
+    post:
+      operationId: sendRideMessage
+      tags: [rides]
+      summary: Send a chat message to the assigned driver or passenger
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageRequest"
+      responses:
+        "201":
+          description: Message sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RideMessageItem"
+
+  /rides/{id}/share-token:
+    post:
+      operationId: createTripShareToken
+      tags: [rides]
+      summary: Generate a secure cryptographic public tracking link
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Share token generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TripShareTokenResponse"
+
+  /promos/validate:
+    post:
+      operationId: validatePromo
+      tags: [rides]
+      summary: Validate promo code and compute applicable discount
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PromoValidationRequest"
+      responses:
+        "200":
+          description: Promo code validation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromoValidationResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ---------------------------------------------------------------------------
+  # DRIVERS
+  # ---------------------------------------------------------------------------
+  /drivers/register:
+    post:
+      operationId: registerDriver
+      tags: [drivers]
+      summary: Complete driver registration and profile onboarding
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DriverRegisterRequest"
+      responses:
+        "201":
+          description: Driver profile created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DriverProfile"
+
+  /drivers/me:
+    get:
+      operationId: getDriverMe
+      tags: [drivers]
+      summary: Get current authenticated driver profile, vehicle, and verification status
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Driver profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DriverProfile"
+
+  /drivers/status:
+    post:
+      operationId: setDriverStatus
+      tags: [drivers]
+      summary: Toggle driver online/offline availability
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DriverStatusRequest"
+      responses:
+        "200":
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DriverProfile"
+        "403":
+          description: Driver not approved to go online
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /drivers/location:
+    post:
+      operationId: updateDriverLocation
+      tags: [drivers]
+      summary: Ingest driver GPS location heartbeat
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DriverLocationPayload"
+      responses:
+        "200":
+          description: Location acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /drivers/offers:
+    get:
+      operationId: getDriverOffers
+      tags: [drivers]
+      summary: List active incoming ride offers for the online driver
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Active offers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DriverOfferItem"
+
+  /drivers/offers/{id}/accept:
+    post:
+      operationId: acceptDriverOffer
+      tags: [drivers]
+      summary: Atomically accept an incoming ride offer
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Ride assigned to driver
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RideProfile"
+        "409":
+          description: Offer expired or already assigned to another driver
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /drivers/offers/{id}/reject:
+    post:
+      operationId: rejectDriverOffer
+      tags: [drivers]
+      summary: Reject an incoming ride offer
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Offer rejected
+
+  /rides/{id}/arrive:
+    post:
+      operationId: driverArrived
+      tags: [drivers]
+      summary: Mark driver arrived at pickup location (starts waiting timer)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Status updated to driver_arrived
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RideProfile"
+
+  /rides/{id}/start:
+    post:
+      operationId: startTrip
+      tags: [drivers]
+      summary: Start trip (requires passenger start OTP if configured)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartTripRequest"
+      responses:
+        "200":
+          description: Status updated to trip_started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RideProfile"
+
+  /rides/{id}/complete:
+    post:
+      operationId: completeTrip
+      tags: [drivers]
+      summary: Complete trip, compute final waiting charges, and credit driver wallet
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Status updated to trip_completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RideProfile"
+
+  /drivers/earnings:
+    get:
+      operationId: getDriverEarnings
+      tags: [drivers]
+      summary: Driver earnings summary, today's trips, surge bonuses, and ratings
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Earnings summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DriverEarningsSummary"
+
+  /drivers/wallet:
+    get:
+      operationId: getDriverWallet
+      tags: [drivers]
+      summary: Driver wallet balance and ledger transaction history
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Wallet and ledger
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DriverWalletResponse"
+
+  /drivers/payouts:
+    post:
+      operationId: requestDriverPayout
+      tags: [drivers]
+      summary: Request wallet balance payout
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PayoutRequest"
+      responses:
+        "201":
+          description: Payout request submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DriverPayoutItem"
+
+  # ---------------------------------------------------------------------------
+  # SHARED RIDES (CARPOOLING)
+  # ---------------------------------------------------------------------------
+  /shared-rides:
+    post:
+      operationId: requestSharedRide
+      tags: [shared-rides]
+      summary: Request or match into a shared carpooling ride
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSharedRideRequest"
+      responses:
+        "201":
+          description: Shared ride matched/created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SharedRideProfile"
+
+  /shared-rides/{id}:
+    get:
+      operationId: getSharedRide
+      tags: [shared-rides]
+      summary: Get shared ride stops, passengers, and live vehicle route
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Shared ride details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SharedRideProfile"
+
+  /shared-rides/{id}/cancel:
+    post:
+      operationId: cancelSharedRidePassenger
+      tags: [shared-rides]
+      summary: Cancel individual passenger seat in shared ride
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Passenger seat cancelled
+
+  # ---------------------------------------------------------------------------
+  # PAYMENTS
+  # ---------------------------------------------------------------------------
+  /payments/create-order:
+    post:
+      operationId: createPaymentOrder
+      tags: [payments]
+      summary: Create gateway payment order for a ride
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePaymentOrderRequest"
+      responses:
+        "200":
+          description: Payment order ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentOrderResponse"
+
+  /payments/verify:
+    post:
+      operationId: verifyPayment
+      tags: [payments]
+      summary: Verify signature and mark payment completed server-side
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyPaymentRequest"
+      responses:
+        "200":
+          description: Payment verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentProfile"
+
+  /payments/webhook:
+    post:
+      operationId: paymentWebhook
+      tags: [payments]
+      summary: Server-to-server webhook endpoint for payment provider callbacks
+      responses:
+        "200":
+          description: Webhook processed
+
+  /payments/{id}/refund:
+    post:
+      operationId: refundPayment
+      tags: [payments]
+      summary: Process full or partial refund for a ride
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefundRequest"
+      responses:
+        "200":
+          description: Refund processed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefundProfile"
+
+  # ---------------------------------------------------------------------------
+  # MAPS & ROUTING
+  # ---------------------------------------------------------------------------
+  /maps/autocomplete:
+    get:
+      operationId: mapsAutocomplete
+      tags: [maps]
+      summary: Search places with real geocoding autocomplete
+      parameters:
+        - name: input
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Place suggestions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PlaceAutocompleteItem"
+
+  /maps/geocode:
+    get:
+      operationId: mapsGeocode
+      tags: [maps]
+      summary: Forward geocode an address to exact latitude and longitude
+      parameters:
+        - name: address
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Coordinates found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RideLatLng"
+
+  /maps/reverse-geocode:
+    get:
+      operationId: mapsReverseGeocode
+      tags: [maps]
+      summary: Reverse geocode latitude/longitude to formatted street address
+      parameters:
+        - name: latitude
+          in: query
+          required: true
+          schema: { type: number }
+        - name: longitude
+          in: query
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Address found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RideLatLng"
+
+  /maps/route:
+    get:
+      operationId: mapsRoute
+      tags: [maps]
+      summary: Calculate actual road distance, ETA, and polyline coordinates
+      parameters:
+        - name: originLat
+          in: query
+          required: true
+          schema: { type: number }
+        - name: originLng
+          in: query
+          required: true
+          schema: { type: number }
+        - name: destLat
+          in: query
+          required: true
+          schema: { type: number }
+        - name: destLng
+          in: query
+          required: true
+          schema: { type: number }
+        - name: waypoints
+          in: query
+          required: false
+          description: Pipe or comma-separated intermediate waypoints lat,lng|lat,lng
+          schema: { type: string }
+      responses:
+        "200":
+          description: Route calculation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouteResult"
+
+  # ---------------------------------------------------------------------------
+  # SAFETY & SOS
+  # ---------------------------------------------------------------------------
+  /safety/sos:
+    post:
+      operationId: triggerSos
+      tags: [safety]
+      summary: Trigger emergency SOS incident with live GPS coordinates
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TriggerSosRequest"
+      responses:
+        "201":
+          description: Emergency event created and contacts alerted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmergencyEventProfile"
+
+  /safety/emergency-contacts:
+    get:
+      operationId: getEmergencyContacts
+      tags: [safety]
+      summary: List user's trusted emergency contacts
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Emergency contacts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EmergencyContactItem"
+    post:
+      operationId: createEmergencyContact
+      tags: [safety]
+      summary: Add a trusted emergency contact
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEmergencyContactRequest"
+      responses:
+        "201":
+          description: Contact added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmergencyContactItem"
+
+  /safety/emergency-contacts/{id}:
+    delete:
+      operationId: deleteEmergencyContact
+      tags: [safety]
+      summary: Remove a trusted emergency contact
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Contact removed
+
+  # ---------------------------------------------------------------------------
+  # PUBLIC TRIP TRACKING
+  # ---------------------------------------------------------------------------
+  /trips/share/{token}:
+    get:
+      operationId: getPublicSharedTrip
+      tags: [public-tracking]
+      summary: Get live trip tracking details via public secure share token
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Public live tracking data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicSharedTripProfile"
+        "404":
+          description: Token invalid or expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ---------------------------------------------------------------------------
+  # SUPPORT & LOST AND FOUND
+  # ---------------------------------------------------------------------------
+  /support/tickets:
+    get:
+      operationId: getSupportTickets
+      tags: [support]
+      summary: List user's support tickets
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Support tickets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SupportTicketItem"
+    post:
+      operationId: createSupportTicket
+      tags: [support]
+      summary: Submit a support ticket or dispute
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSupportTicketRequest"
+      responses:
+        "201":
+          description: Ticket created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportTicketItem"
+
+  /support/lost-and-found:
+    get:
+      operationId: getLostAndFoundReports
+      tags: [support]
+      summary: List lost and found reports
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Lost and found items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LostItemProfile"
+    post:
+      operationId: reportLostItem
+      tags: [support]
+      summary: Report a lost item from a ride
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportLostItemRequest"
+      responses:
+        "201":
+          description: Lost item report submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LostItemProfile"
+
+  # ---------------------------------------------------------------------------
+  # ADMIN & OPERATIONS
+  # ---------------------------------------------------------------------------
+  /admin/users:
+    get:
+      operationId: adminListUsers
+      tags: [admin]
+      summary: Admin list and search users
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: role
+          in: query
+          schema: { type: string, enum: [passenger, driver, admin] }
+        - name: limit
+          in: query
+          schema: { type: number, default: 20 }
+        - name: offset
+          in: query
+          schema: { type: number, default: 0 }
+      responses:
+        "200":
+          description: User list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUserListResponse"
+
+  /admin/drivers:
+    get:
+      operationId: adminListDrivers
+      tags: [admin]
+      summary: Admin list drivers with verification status filter
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, approved, rejected, suspended] }
+      responses:
+        "200":
+          description: Drivers list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminDriverProfile"
+
+  /admin/drivers/{id}/review:
+    post:
+      operationId: adminReviewDriver
+      tags: [admin]
+      summary: Approve, reject, or suspend a driver
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminReviewDriverRequest"
+      responses:
+        "200":
+          description: Driver status updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DriverProfile"
+
+  /admin/rides:
+    get:
+      operationId: adminListRides
+      tags: [admin]
+      summary: Admin live ride monitoring
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: number, default: 20 }
+      responses:
+        "200":
+          description: Live rides
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RideListResponse"
+
+  /admin/emergency-events:
+    get:
+      operationId: adminListEmergencyEvents
+      tags: [admin]
+      summary: List active and past SOS emergency incidents
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Emergency events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EmergencyEventProfile"
+
+  /admin/emergency-events/{id}/resolve:
+    post:
+      operationId: adminResolveEmergencyEvent
+      tags: [admin]
+      summary: Mark emergency event resolved
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveEmergencyEventRequest"
+      responses:
+        "200":
+          description: Event resolved
+
+  /admin/pricing:
+    get:
+      operationId: adminGetPricing
+      tags: [admin]
+      summary: Get active fare configuration rules
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Pricing rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FareConfigurationItem"
+
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
   schemas:
     HealthStatus:
       type: object
       properties:
+        status: { type: string }
+      required: [status]
+
+    SuccessResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+      required: [success]
+
+    ErrorResponse:
+      type: object
+      properties:
+        error: { type: string }
+        message: { type: string }
+      required: [error, message]
+
+    UserProfile:
+      type: object
+      properties:
+        id: { type: string }
+        role: { type: string, enum: [passenger, driver, admin] }
+        status: { type: string, enum: [active, suspended, deleted] }
+        name: { type: string }
+        phone: { type: string, nullable: true }
+        email: { type: string, nullable: true }
+        profilePhotoUrl: { type: string, nullable: true }
+        phoneVerified: { type: boolean }
+        emailVerified: { type: boolean }
+        createdAt: { type: string }
+      required:
+        - id
+        - role
+        - status
+        - name
+        - phoneVerified
+        - emailVerified
+        - createdAt
+
+    AdminUserProfile:
+      allOf:
+        - $ref: "#/components/schemas/UserProfile"
+        - type: object
+          properties:
+            isBlocked: { type: boolean }
+            blockedReason: { type: string, nullable: true }
+          required: [isBlocked]
+
+    AuthSession:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/UserProfile"
+        accessToken: { type: string }
+        accessTokenExpiresInSeconds: { type: number }
+        refreshToken: { type: string }
+      required:
+        - user
+        - accessToken
+        - accessTokenExpiresInSeconds
+        - refreshToken
+
+    RegisterRequest:
+      type: object
+      properties:
+        role: { type: string, enum: [passenger, driver] }
+        name: { type: string, minLength: 1 }
+        email: { type: string }
+        phone: { type: string }
+        password: { type: string, minLength: 8 }
+      required: [role, name, password]
+
+    LoginRequest:
+      type: object
+      properties:
+        email: { type: string }
+        password: { type: string }
+      required: [email, password]
+
+    OtpRequest:
+      type: object
+      properties:
+        phone: { type: string }
+        purpose: { type: string, enum: [signup, login, password_reset] }
+      required: [phone, purpose]
+
+    OtpRequestResponse:
+      type: object
+      properties:
+        expiresInSeconds: { type: number }
+        devOtpCode: { type: string, nullable: true }
+      required: [expiresInSeconds]
+
+    OtpVerifyRequest:
+      type: object
+      properties:
+        phone: { type: string }
+        purpose: { type: string, enum: [signup, login, password_reset] }
+        code: { type: string }
+        name: { type: string }
+        role: { type: string, enum: [passenger, driver] }
+        newPassword: { type: string, minLength: 8 }
+      required: [phone, purpose, code]
+
+    RefreshRequest:
+      type: object
+      properties:
+        refreshToken: { type: string }
+      required: [refreshToken]
+
+    ForgotPasswordRequest:
+      type: object
+      properties:
+        email: { type: string }
+      required: [email]
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        name: { type: string }
+        profilePhotoUrl: { type: string }
+
+    RegisterDeviceRequest:
+      type: object
+      properties:
+        pushToken: { type: string }
+        platform: { type: string, enum: [ios, android, web], default: android }
+      required: [pushToken]
+
+    RegisterDeviceResult:
+      type: object
+      properties:
+        success: { type: boolean }
+        deviceId: { type: string, nullable: true }
+        platform: { type: string }
+      required: [success]
+
+    SavedLocationItem:
+      type: object
+      properties:
+        id: { type: string }
+        label: { type: string }
+        address: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+      required: [id, label, address, latitude, longitude]
+
+    CreateSavedLocationRequest:
+      type: object
+      properties:
+        label: { type: string }
+        address: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+      required: [label, address, latitude, longitude]
+
+    RideLatLng:
+      type: object
+      properties:
+        address: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+      required: [address, latitude, longitude]
+
+    RideStop:
+      type: object
+      properties:
+        address: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+        name: { type: string }
+        sequenceOrder: { type: number }
+      required: [address, latitude, longitude]
+
+    MatchRideRequest:
+      type: object
+      properties:
+        origin:
+          $ref: "#/components/schemas/RideLatLng"
+        destination:
+          $ref: "#/components/schemas/RideLatLng"
+        stops:
+          type: array
+          items:
+            $ref: "#/components/schemas/RideStop"
+        rideType:
+          type: string
+          enum: [economy, premium, xl, shared]
+          default: economy
+        fareCents:
+          type: number
+          description: "Fare in cents / lowest currency unit"
+        passengerId:
+          type: string
+      required: [origin, destination]
+
+    MatchedDriverInfo:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        phone: { type: string, nullable: true }
+        rating: { type: number, nullable: true }
+        model: { type: string, nullable: true }
+        plateNumber: { type: string, nullable: true }
+        latitude: { type: number }
+        longitude: { type: number }
+        distanceMeters: { type: number }
+      required: [id, name, latitude, longitude, distanceMeters]
+
+    RideMatchResult:
+      type: object
+      properties:
+        matchFound: { type: boolean }
+        message: { type: string }
+        rideId: { type: string, nullable: true }
+        driverId: { type: string, nullable: true }
+        driver:
+          $ref: "#/components/schemas/MatchedDriverInfo"
+        ride:
+          type: object
+          nullable: true
+          properties:
+            id: { type: string }
+            status: { type: string }
+            fareCents: { type: number, nullable: true }
+            pickupAddress: { type: string }
+            destinationAddress: { type: string }
+            createdAt: { type: string }
+      required: [matchFound, message]
+
+    CreateRideRequest:
+      type: object
+      properties:
+        rideType: { type: string, enum: [economy, premium, xl, shared] }
+        pickup: { $ref: "#/components/schemas/RideLatLng" }
+        destination: { $ref: "#/components/schemas/RideLatLng" }
+        stops:
+          type: array
+          items:
+            $ref: "#/components/schemas/RideStop"
+        promoCode: { type: string }
+        scheduledFor: { type: string, description: "ISO date-time for scheduled rides" }
+        notes: { type: string }
+      required: [rideType, pickup, destination]
+
+    FareQuoteRequest:
+      type: object
+      properties:
+        pickup: { $ref: "#/components/schemas/RideLatLng" }
+        destination: { $ref: "#/components/schemas/RideLatLng" }
+        stops:
+          type: array
+          items:
+            $ref: "#/components/schemas/RideStop"
+        promoCode: { type: string }
+      required: [pickup, destination]
+
+    FareQuoteOption:
+      type: object
+      properties:
+        rideType: { type: string, enum: [economy, premium, xl, shared] }
+        name: { type: string }
+        seats: { type: number }
+        etaMinutes: { type: number }
+        baseFare: { type: number }
+        distanceFare: { type: number }
+        timeFare: { type: number }
+        surgeMultiplier: { type: number }
+        discountAmount: { type: number }
+        finalFare: { type: number }
+      required: [rideType, name, seats, etaMinutes, finalFare]
+
+    FareQuoteResponse:
+      type: object
+      properties:
+        distanceMeters: { type: number }
+        durationSeconds: { type: number }
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/FareQuoteOption"
+      required: [distanceMeters, durationSeconds, options]
+
+    AvailableDriversRequest:
+      type: object
+      properties:
+        pickup: { $ref: "#/components/schemas/RideLatLng" }
+        destination: { $ref: "#/components/schemas/RideLatLng" }
+        stops:
+          type: array
+          items:
+            $ref: "#/components/schemas/RideStop"
+        promoCode: { type: string }
+      required: [pickup, destination]
+
+    AvailableDriverOption:
+      type: object
+      properties:
+        id: { type: string }
+        driverId: { type: string }
+        driverName: { type: string }
+        rating: { type: number }
+        totalTrips: { type: number }
+        rideType: { type: string, enum: [economy, premium, xl, shared] }
+        vehicleName: { type: string }
+        plateNumber: { type: string }
+        estimatedFare: { type: number }
+        originalFare: { type: number }
+        discountAmount: { type: number }
+        etaMinutes: { type: number }
+        distanceToPickupKm: { type: number }
+        seats: { type: number }
+      required:
+        - id
+        - driverName
+        - rating
+        - rideType
+        - vehicleName
+        - estimatedFare
+        - etaMinutes
+        - seats
+
+    AvailableDriversResponse:
+      type: object
+      properties:
+        routeDistanceKm: { type: number }
+        routeDurationMin: { type: number }
+        drivers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AvailableDriverOption"
+      required: [routeDistanceKm, routeDurationMin, drivers]
+
+    PromoValidationRequest:
+      type: object
+      properties:
+        code: { type: string }
+        rideType: { type: string, enum: [economy, premium, xl, shared] }
+        fare: { type: number }
+      required: [code]
+
+    PromoValidationResponse:
+      type: object
+      properties:
+        valid: { type: boolean }
+        code: { type: string }
+        discountAmount: { type: number }
+        finalFare: { type: number }
+        message: { type: string }
+        promoCodeId: { type: string }
+      required: [valid, code, discountAmount, finalFare, message]
+
+    CancelRideRequest:
+      type: object
+      properties:
+        reason: { type: string }
+
+    RateRideRequest:
+      type: object
+      properties:
+        stars: { type: number, minimum: 1, maximum: 5 }
+        tip: { type: number, default: 0 }
+        compliments:
+          type: array
+          items: { type: string }
+        review: { type: string }
+      required: [stars]
+
+    RatingResponse:
+      type: object
+      properties:
+        ratingId: { type: string }
+        stars: { type: number }
+        tip: { type: number }
+      required: [ratingId, stars]
+
+    SendMessageRequest:
+      type: object
+      properties:
+        body: { type: string }
+      required: [body]
+
+    RideMessageItem:
+      type: object
+      properties:
+        id: { type: string }
+        rideId: { type: string }
+        senderId: { type: string }
+        senderRole: { type: string, enum: [passenger, driver, admin] }
+        body: { type: string }
+        readAt: { type: string, nullable: true }
+        createdAt: { type: string }
+      required: [id, rideId, senderId, senderRole, body, createdAt]
+
+    TripShareTokenResponse:
+      type: object
+      properties:
+        token: { type: string }
+        shareUrl: { type: string }
+        expiresAt: { type: string }
+      required: [token, shareUrl, expiresAt]
+
+    PublicSharedTripProfile:
+      type: object
+      properties:
+        status: { type: string }
+        pickupAddress: { type: string }
+        destinationAddress: { type: string }
+        currentDriverLocation:
+          type: object
+          properties:
+            latitude: { type: number }
+            longitude: { type: number }
+            heading: { type: number, nullable: true }
+        driver:
+          type: object
+          properties:
+            name: { type: string }
+            vehicleMake: { type: string }
+            vehicleModel: { type: string }
+            vehicleColor: { type: string }
+            plateNumber: { type: string }
+            rating: { type: number }
+        passengerFirstName: { type: string }
+      required: [status, pickupAddress, destinationAddress]
+
+    DriverVehicleInfo:
+      type: object
+      properties:
+        id: { type: string }
+        category: { type: string, enum: [economy, premium, xl] }
+        make: { type: string }
+        model: { type: string }
+        year: { type: string }
+        color: { type: string }
+        plateNumber: { type: string }
+        isApproved: { type: boolean }
+      required: [id, category, make, model, year, color, plateNumber, isApproved]
+
+    DriverProfile:
+      type: object
+      properties:
+        id: { type: string }
+        userId: { type: string }
+        name: { type: string }
+        phone: { type: string, nullable: true }
+        licenseNumber: { type: string }
+        verificationStatus: { type: string, enum: [pending, approved, rejected, suspended] }
+        isOnline: { type: boolean }
+        averageRating: { type: number }
+        totalRides: { type: number }
+        currentLatitude: { type: number, nullable: true }
+        currentLongitude: { type: number, nullable: true }
+        vehicle: { $ref: "#/components/schemas/DriverVehicleInfo" }
+      required: [id, userId, name, licenseNumber, verificationStatus, isOnline]
+
+    AdminDriverProfile:
+      allOf:
+        - $ref: "#/components/schemas/DriverProfile"
+        - type: object
+          properties:
+            isBlocked: { type: boolean }
+            blockedReason: { type: string, nullable: true }
+            documentSummary:
+              type: object
+              properties:
+                total: { type: number }
+                approved: { type: number }
+                pending: { type: number }
+                rejected: { type: number }
+              required: [total, approved, pending, rejected]
+          required: [isBlocked, documentSummary]
+
+    DriverRegisterRequest:
+      type: object
+      properties:
+        licenseNumber: { type: string }
+        vehicleCategory: { type: string, enum: [economy, premium, xl] }
+        vehicleMake: { type: string }
+        vehicleModel: { type: string }
+        vehicleYear: { type: string }
+        vehicleColor: { type: string }
+        plateNumber: { type: string }
+      required: [licenseNumber, vehicleCategory, vehicleMake, vehicleModel, vehicleYear, vehicleColor, plateNumber]
+
+    DriverStatusRequest:
+      type: object
+      properties:
+        isOnline: { type: boolean }
+      required: [isOnline]
+
+    DriverLocationPayload:
+      type: object
+      properties:
+        latitude: { type: number }
+        longitude: { type: number }
+        heading: { type: number }
+        speed: { type: number }
+      required: [latitude, longitude]
+
+    DriverOfferItem:
+      type: object
+      properties:
+        offerId: { type: string }
+        rideId: { type: string }
+        pickup: { $ref: "#/components/schemas/RideLatLng" }
+        destination: { $ref: "#/components/schemas/RideLatLng" }
+        rideType: { type: string }
+        estimatedFare: { type: number }
+        estimatedDistanceMeters: { type: number }
+        estimatedEtaMinutes: { type: number }
+        expiresAt: { type: string }
+      required: [offerId, rideId, pickup, destination, estimatedFare, expiresAt]
+
+    StartTripRequest:
+      type: object
+      properties:
+        otpCode: { type: string }
+
+    DriverEarningsSummary:
+      type: object
+      properties:
+        todayEarnings: { type: number }
+        todayRides: { type: number }
+        todayOnlineHours: { type: number }
+        weekEarnings: { type: number }
+        rating: { type: number }
+      required: [todayEarnings, todayRides, weekEarnings, rating]
+
+    WalletTransactionItem:
+      type: object
+      properties:
+        id: { type: string }
+        type: { type: string }
+        amount: { type: number }
+        balanceAfter: { type: number }
+        description: { type: string }
+        createdAt: { type: string }
+      required: [id, type, amount, balanceAfter, description, createdAt]
+
+    DriverWalletResponse:
+      type: object
+      properties:
+        availableBalance: { type: number }
+        pendingBalance: { type: number }
+        totalEarned: { type: number }
+        totalPaidOut: { type: number }
+        currency: { type: string }
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/WalletTransactionItem"
+      required: [availableBalance, totalEarned, transactions]
+
+    PayoutRequest:
+      type: object
+      properties:
+        amount: { type: number }
+        payoutMethod: { type: string }
+      required: [amount]
+
+    DriverPayoutItem:
+      type: object
+      properties:
+        id: { type: string }
+        amount: { type: number }
+        status: { type: string }
+        createdAt: { type: string }
+      required: [id, amount, status, createdAt]
+
+    CreateSharedRideRequest:
+      type: object
+      properties:
+        pickup: { $ref: "#/components/schemas/RideLatLng" }
+        destination: { $ref: "#/components/schemas/RideLatLng" }
+        seatCount: { type: number, default: 1 }
+      required: [pickup, destination]
+
+    SharedRidePassengerProfile:
+      type: object
+      properties:
+        passengerId: { type: string }
+        passengerName: { type: string }
+        seatCount: { type: number }
+        fare: { type: number }
+        status: { type: string }
+        pickupAddress: { type: string }
+        destinationAddress: { type: string }
+      required: [passengerId, seatCount, fare, status]
+
+    SharedRideStopProfile:
+      type: object
+      properties:
+        sequenceOrder: { type: number }
+        stopType: { type: string, enum: [pickup, dropoff] }
+        address: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+        passengerId: { type: string }
+        estimatedArrival: { type: string, nullable: true }
+      required: [sequenceOrder, stopType, address, latitude, longitude]
+
+    SharedRideProfile:
+      type: object
+      properties:
+        id: { type: string }
+        status: { type: string }
+        availableSeats: { type: number }
+        maxSeats: { type: number }
+        passengers:
+          type: array
+          items:
+            $ref: "#/components/schemas/SharedRidePassengerProfile"
+        stops:
+          type: array
+          items:
+            $ref: "#/components/schemas/SharedRideStopProfile"
+        createdAt: { type: string }
+      required: [id, status, availableSeats, maxSeats, passengers, stops]
+
+    CreatePaymentOrderRequest:
+      type: object
+      properties:
+        rideId: { type: string }
+        paymentMethodType: { type: string, enum: [card, upi, netbanking, wallet, cash] }
+      required: [rideId, paymentMethodType]
+
+    PaymentOrderResponse:
+      type: object
+      properties:
+        orderId: { type: string }
+        amount: { type: number }
+        currency: { type: string }
+        keyId: { type: string }
+      required: [orderId, amount, currency]
+
+    VerifyPaymentRequest:
+      type: object
+      properties:
+        rideId: { type: string }
+        orderId: { type: string }
+        paymentId: { type: string }
+        signature: { type: string }
+      required: [rideId, orderId, paymentId]
+
+    PaymentProfile:
+      type: object
+      properties:
+        id: { type: string }
+        rideId: { type: string }
+        totalAmount: { type: number }
+        status: { type: string }
+        currency: { type: string }
+      required: [id, rideId, totalAmount, status]
+
+    RefundRequest:
+      type: object
+      properties:
+        amount: { type: number }
+        reason: { type: string }
+      required: [amount, reason]
+
+    RefundProfile:
+      type: object
+      properties:
+        id: { type: string }
+        amount: { type: number }
+        status: { type: string }
+      required: [id, amount, status]
+
+    PlaceAutocompleteItem:
+      type: object
+      properties:
+        placeId: { type: string }
+        mainText: { type: string }
+        secondaryText: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+      required: [placeId, mainText, latitude, longitude]
+
+    RouteResult:
+      type: object
+      properties:
+        distanceMeters: { type: number }
+        durationSeconds: { type: number }
+        polyline: { type: string }
+      required: [distanceMeters, durationSeconds, polyline]
+
+    TriggerSosRequest:
+      type: object
+      properties:
+        rideId: { type: string, nullable: true }
+        latitude: { type: number }
+        longitude: { type: number }
+        details: { type: string }
+      required: [latitude, longitude]
+
+    EmergencyEventProfile:
+      type: object
+      properties:
+        id: { type: string }
+        userId: { type: string }
+        rideId: { type: string, nullable: true }
+        type: { type: string }
+        status: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+        createdAt: { type: string }
+      required: [id, userId, type, status, latitude, longitude, createdAt]
+
+    EmergencyContactItem:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        phone: { type: string }
+        relationship: { type: string, nullable: true }
+      required: [id, name, phone]
+
+    CreateEmergencyContactRequest:
+      type: object
+      properties:
+        name: { type: string }
+        phone: { type: string }
+        relationship: { type: string }
+      required: [name, phone]
+
+    SupportTicketItem:
+      type: object
+      properties:
+        id: { type: string }
+        category: { type: string }
+        subject: { type: string }
+        description: { type: string }
+        status: { type: string }
+        rideId: { type: string, nullable: true }
+        createdAt: { type: string }
+      required: [id, category, subject, status, createdAt]
+
+    CreateSupportTicketRequest:
+      type: object
+      properties:
+        category: { type: string }
+        subject: { type: string }
+        description: { type: string }
+        rideId: { type: string }
+      required: [category, subject, description]
+
+    LostItemProfile:
+      type: object
+      properties:
+        id: { type: string }
+        rideId: { type: string }
+        description: { type: string }
+        status: { type: string }
+        createdAt: { type: string }
+      required: [id, rideId, description, status, createdAt]
+
+    ReportLostItemRequest:
+      type: object
+      properties:
+        rideId: { type: string }
+        description: { type: string }
+      required: [rideId, description]
+
+    AdminUserListResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUserProfile"
+        total: { type: number }
+      required: [users, total]
+
+    AdminReviewDriverRequest:
+      type: object
+      properties:
+        status: { type: string, enum: [approved, rejected, suspended] }
+        reason: { type: string }
+      required: [status]
+
+    FareConfigurationItem:
+      type: object
+      properties:
+        id: { type: string }
+        rideType: { type: string }
+        baseFare: { type: number }
+        perKm: { type: number }
+        perMinute: { type: number }
+        minimumFare: { type: number }
+        bookingFee: { type: number }
+        surgeMultiplier: { type: number }
+        cancellationFee: { type: number }
+      required: [id, rideType, baseFare, perKm, perMinute, minimumFare]
+
+    RideProfile:
+      type: object
+      properties:
+        id: { type: string }
+        passengerId: { type: string }
+        driverId: { type: string, nullable: true }
+        vehicleId: { type: string, nullable: true }
+        rideType: { type: string, enum: [economy, premium, xl, shared] }
         status:
           type: string
+          enum:
+            - scheduled
+            - scheduled_dispatching
+            - requested
+            - searching_driver
+            - driver_offer_sent
+            - driver_assigned
+            - driver_arriving
+            - driver_arrived
+            - passenger_no_show
+            - trip_started
+            - trip_completed
+            - payment_pending
+            - payment_completed
+            - payment_failed
+            - passenger_cancelled
+            - driver_cancelled
+            - expired
+            - disputed
+            - cancelled
+            - picking_up
+            - riding
+            - completed
+        pickup: { $ref: "#/components/schemas/RideLatLng" }
+        destination: { $ref: "#/components/schemas/RideLatLng" }
+        stops:
+          type: array
+          items:
+            $ref: "#/components/schemas/RideStop"
+          nullable: true
+        isShared: { type: boolean, nullable: true }
+        coRiderCount: { type: number, nullable: true }
+        coRiderName: { type: string, nullable: true }
+        coRiderPickupAddress: { type: string, nullable: true }
+        coRiderDropoffAddress: { type: string, nullable: true }
+        distanceMeters: { type: number, nullable: true }
+        etaSeconds: { type: number, nullable: true }
+        estimatedFare: { type: number, nullable: true }
+        finalFare: { type: number, nullable: true }
+        surgeMultiplier: { type: number, nullable: true }
+        scheduledFor: { type: string, nullable: true }
+        startTripOtp: { type: string, nullable: true }
+        waitingCharges: { type: number, nullable: true }
+        cancellationFeeCharged: { type: number, nullable: true }
+        cancellationReason: { type: string, nullable: true }
+        driver:
+          type: object
+          nullable: true
+          properties:
+            id: { type: string }
+            name: { type: string }
+            phone: { type: string }
+            rating: { type: number }
+            vehicleMake: { type: string }
+            vehicleModel: { type: string }
+            vehicleColor: { type: string }
+            plateNumber: { type: string }
+        requestedAt: { type: string }
+        driverAssignedAt: { type: string, nullable: true }
+        driverArrivedAt: { type: string, nullable: true }
+        tripStartedAt: { type: string, nullable: true }
+        tripCompletedAt: { type: string, nullable: true }
+        cancelledAt: { type: string, nullable: true }
+        createdAt: { type: string }
+        updatedAt: { type: string }
       required:
+        - id
+        - passengerId
+        - rideType
         - status
+        - pickup
+        - destination
+        - requestedAt
+        - createdAt
+        - updatedAt
+
+    RideListResponse:
+      type: object
+      properties:
+        rides:
+          type: array
+          items:
+            $ref: "#/components/schemas/RideProfile"
+        total: { type: number }
+      required: [rides, total]
+
+    ResolveEmergencyEventRequest:
+      type: object
+      properties:
+        notes: { type: string }
 

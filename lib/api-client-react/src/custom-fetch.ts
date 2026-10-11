@@ -7,6 +7,7 @@ export type ErrorType<T = unknown> = ApiError<T>;
 export type BodyType<T> = T;
 
 export type AuthTokenGetter = () => Promise<string | null> | string | null;
+export type AccountBlockedHandler = (payload: { code: string; reason?: string; message?: string }) => void;
 
 const NO_BODY_STATUS = new Set([204, 205, 304]);
 const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
@@ -17,6 +18,14 @@ const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 
 let _baseUrl: string | null = null;
 let _authTokenGetter: AuthTokenGetter | null = null;
+let _accountBlockedHandler: AccountBlockedHandler | null = null;
+
+/**
+ * Set a handler called whenever the backend returns 403 ACCOUNT_BLOCKED.
+ */
+export function setAccountBlockedHandler(handler: AccountBlockedHandler | null): void {
+  _accountBlockedHandler = handler;
+}
 
 /**
  * Set a base URL that is prepended to every relative request URL
@@ -364,6 +373,18 @@ export async function customFetch<T = unknown>(
 
   if (!response.ok) {
     const errorData = await parseErrorBody(response, method);
+    if (response.status === 403 && errorData && typeof errorData === "object") {
+      const code = (errorData as any).code || (errorData as any).error;
+      if (code === "ACCOUNT_BLOCKED") {
+        if (_accountBlockedHandler) {
+          _accountBlockedHandler({
+            code: "ACCOUNT_BLOCKED",
+            reason: (errorData as any).reason,
+            message: (errorData as any).message,
+          });
+        }
+      }
+    }
     throw new ApiError(response, errorData, requestInfo);
   }
 

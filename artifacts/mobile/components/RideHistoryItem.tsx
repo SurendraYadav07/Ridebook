@@ -1,46 +1,24 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { Ride } from '@/context/RideContext';
+import { RatingStars } from './RatingStars';
 import * as Haptics from 'expo-haptics';
 
 interface RideHistoryItemProps {
   ride: Ride;
   onRate?: (rideId: string, rating: number) => void;
+  onPress?: () => void;
+  onRebook?: (ride: Ride) => void;
 }
 
-function StarRow({ rating, onRate, rideId }: { rating?: number; onRate?: (id: string, r: number) => void; rideId: string }) {
-  const colors = useColors();
-  return (
-    <View style={{ flexDirection: 'row', gap: 4, marginTop: 6 }}>
-      {[1, 2, 3, 4, 5].map(star => (
-        <TouchableOpacity
-          key={star}
-          onPress={async () => {
-            await Haptics.selectionAsync();
-            onRate?.(rideId, star);
-          }}
-          disabled={!!rating}
-        >
-          <Ionicons
-            name={rating && star <= rating ? 'star' : 'star-outline'}
-            size={18}
-            color={rating && star <= rating ? '#FBBF24' : colors.border}
-          />
-        </TouchableOpacity>
-      ))}
-      {!rating && <Text style={{ fontSize: 12, color: colors.mutedForeground, fontFamily: 'Inter_400Regular', marginLeft: 4 }}>Tap to rate</Text>}
-    </View>
-  );
-}
-
-export default function RideHistoryItem({ ride, onRate }: RideHistoryItemProps) {
+export default function RideHistoryItem({ ride, onRate, onPress, onRebook }: RideHistoryItemProps) {
   const colors = useColors();
 
   const date = new Date(ride.createdAt);
-  const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  const dateStr = date.toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' });
+  const timeStr = date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 
   const typeLabel = ride.rideType.charAt(0).toUpperCase() + ride.rideType.slice(1);
   const statusColor =
@@ -48,12 +26,12 @@ export default function RideHistoryItem({ ride, onRate }: RideHistoryItemProps) 
     ride.status === 'cancelled' ? colors.destructive :
     colors.primary;
 
-  const styles = StyleSheet.create({
+  const styles = useMemo(() => StyleSheet.create({
     card: {
       backgroundColor: colors.card,
       borderRadius: colors.radius,
       padding: 16,
-      marginBottom: 10,
+      marginBottom: 12,
       borderWidth: 1,
       borderColor: colors.border,
     },
@@ -94,28 +72,30 @@ export default function RideHistoryItem({ ride, onRate }: RideHistoryItemProps) 
       fontFamily: 'Inter_500Medium',
       color: colors.foreground,
     },
-    locationAddr: {
-      fontSize: 12,
-      fontFamily: 'Inter_400Regular',
-      color: colors.mutedForeground,
-      flex: 1,
-    },
     footer: {
       flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'space-between',
       paddingTop: 10,
       borderTopWidth: 1,
       borderTopColor: colors.border,
       gap: 8,
       flexWrap: 'wrap',
     },
+    chipsWrap: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      flexWrap: 'wrap',
+      flex: 1,
+    },
     chip: {
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: colors.muted,
       borderRadius: 20,
-      paddingHorizontal: 10,
-      paddingVertical: 4,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
       gap: 4,
     },
     chipText: {
@@ -130,10 +110,24 @@ export default function RideHistoryItem({ ride, onRate }: RideHistoryItemProps) 
       color: statusColor,
       fontFamily: 'Inter_600SemiBold',
     },
-  });
+    rebookBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      backgroundColor: colors.primary + '15',
+      borderRadius: 14,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+    },
+    rebookText: {
+      fontSize: 12,
+      fontFamily: 'Inter_600SemiBold',
+      color: colors.primary,
+    },
+  }), [colors, statusColor]);
 
   return (
-    <View style={styles.card}>
+    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.75}>
       <View style={styles.header}>
         <View>
           <Text style={styles.dateText}>{dateStr} · {timeStr}</Text>
@@ -143,7 +137,7 @@ export default function RideHistoryItem({ ride, onRate }: RideHistoryItemProps) 
             </Text>
           )}
         </View>
-        <Text style={styles.fareText}>${ride.fare.toFixed(2)}</Text>
+        <Text style={styles.fareText}>₹{Math.round(ride.fare)}</Text>
       </View>
 
       <View style={styles.route}>
@@ -159,33 +153,61 @@ export default function RideHistoryItem({ ride, onRate }: RideHistoryItemProps) 
       </View>
 
       <View style={styles.footer}>
-        <View style={[styles.chip, styles.statusChip]}>
-          <Ionicons
-            name={ride.status === 'completed' ? 'checkmark-circle' : 'close-circle'}
-            size={12}
-            color={statusColor}
-          />
-          <Text style={[styles.chipText, styles.statusText]}>
-            {ride.status.charAt(0).toUpperCase() + ride.status.slice(1)}
-          </Text>
+        <View style={styles.chipsWrap}>
+          <View style={[styles.chip, styles.statusChip]}>
+            <Ionicons
+              name={ride.status === 'completed' ? 'checkmark-circle' : 'close-circle'}
+              size={12}
+              color={statusColor}
+            />
+            <Text style={[styles.chipText, styles.statusText]}>
+              {ride.status.charAt(0).toUpperCase() + ride.status.slice(1)}
+            </Text>
+          </View>
+          <View style={styles.chip}>
+            <Ionicons name="car" size={11} color={colors.mutedForeground} />
+            <Text style={styles.chipText}>{typeLabel}</Text>
+          </View>
+          <View style={styles.chip}>
+            <Ionicons name="speedometer" size={11} color={colors.mutedForeground} />
+            <Text style={styles.chipText}>{ride.distance} km</Text>
+          </View>
         </View>
-        <View style={styles.chip}>
-          <Ionicons name="car" size={12} color={colors.mutedForeground} />
-          <Text style={styles.chipText}>{typeLabel}</Text>
-        </View>
-        <View style={styles.chip}>
-          <Ionicons name="speedometer" size={12} color={colors.mutedForeground} />
-          <Text style={styles.chipText}>{ride.distance} km</Text>
-        </View>
-        <View style={styles.chip}>
-          <Ionicons name="time" size={12} color={colors.mutedForeground} />
-          <Text style={styles.chipText}>{ride.duration} min</Text>
-        </View>
+
+        {onRebook && (
+          <TouchableOpacity
+            style={styles.rebookBtn}
+            onPress={async () => {
+              await Haptics.selectionAsync();
+              onRebook(ride);
+            }}
+          >
+            <Ionicons name="repeat" size={13} color={colors.primary} />
+            <Text style={styles.rebookText}>Book Again</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
-      {ride.status === 'completed' && onRate && (
-        <StarRow rating={ride.rating} onRate={onRate} rideId={ride.id} />
+      {ride.status === 'completed' && (
+        ride.rating ? (
+          <RatingStars
+            value={ride.rating}
+            size={15}
+            showValue
+            label="Your Rating"
+            style={{ marginTop: 8 }}
+          />
+        ) : onRate ? (
+          <RatingStars
+            value={0}
+            size={18}
+            interactive
+            onRatingChange={(r) => onRate(ride.id, r)}
+            label="Tap to rate"
+            style={{ marginTop: 8 }}
+          />
+        ) : null
       )}
-    </View>
+    </TouchableOpacity>
   );
 }

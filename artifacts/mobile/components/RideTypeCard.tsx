@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { RideType } from '@/context/RideContext';
+import type { IoniconName } from '@/lib/ionicon-name';
 
 interface RideTypeCardProps {
   id: RideType;
@@ -10,8 +11,9 @@ interface RideTypeCardProps {
   seats: number;
   fare: number;
   eta: number;
-  icon: string;
+  icon: IoniconName;
   selected: boolean;
+  badge?: string;
   onSelect: () => void;
 }
 
@@ -23,11 +25,12 @@ export default function RideTypeCard({
   eta,
   icon,
   selected,
+  badge,
   onSelect,
 }: RideTypeCardProps) {
   const colors = useColors();
 
-  const styles = StyleSheet.create({
+  const styles = useMemo(() => StyleSheet.create({
     card: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -37,6 +40,7 @@ export default function RideTypeCard({
       marginBottom: 10,
       borderWidth: 2,
       borderColor: selected ? colors.primary : colors.border,
+      position: 'relative',
     },
     iconWrap: {
       width: 48,
@@ -73,25 +77,37 @@ export default function RideTypeCard({
     },
     badge: {
       position: 'absolute',
-      top: -6,
-      right: -6,
-      backgroundColor: colors.primary,
-      borderRadius: 10,
-      paddingHorizontal: 6,
-      paddingVertical: 2,
+      top: -8,
+      right: 12,
+      backgroundColor: '#059669',
+      borderRadius: 8,
+      paddingHorizontal: 7,
+      paddingVertical: 2.5,
+      zIndex: 2,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.15,
+      shadowRadius: 2,
+      elevation: 2,
     },
     badgeText: {
       fontSize: 10,
-      fontFamily: 'Inter_600SemiBold',
+      fontFamily: 'Inter_700Bold',
       color: '#FFFFFF',
+      textTransform: 'uppercase',
     },
-  });
+  }), [colors, selected]);
 
   return (
     <TouchableOpacity style={styles.card} onPress={onSelect} activeOpacity={0.85}>
+      {badge && (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>{badge}</Text>
+        </View>
+      )}
       <View style={styles.iconWrap}>
         <Ionicons
-          name={icon as any}
+          name={icon}
           size={22}
           color={selected ? '#FFFFFF' : colors.mutedForeground}
         />
@@ -99,11 +115,11 @@ export default function RideTypeCard({
       <View style={styles.info}>
         <Text style={styles.name}>{name}</Text>
         <Text style={styles.meta}>
-          <Ionicons name="people" size={12} color={colors.mutedForeground} /> {seats} seats
+          <Ionicons name="people" size={12} color={colors.mutedForeground} /> {seats} {seats === 1 ? 'seat (shared)' : 'seats'}
         </Text>
       </View>
       <View style={styles.right}>
-        <Text style={styles.fare}>${fare.toFixed(2)}</Text>
+        <Text style={styles.fare}>₹{Math.round(fare)}</Text>
         <Text style={styles.eta}>{eta} min away</Text>
       </View>
     </TouchableOpacity>
